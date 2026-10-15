@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: notifyflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: notifyflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notifyflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: notifyflow-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notifyflow-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/notifyflow
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: notifyflow-production-super-secret-key-32chars!
+      WORKER_CONCURRENCY: 5
+      USE_MOCK_FCM: "true"
+      ENABLE_SWAGGER: "true"
+    ports:
+      - "4000:4000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notifyflow-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/notifyflow
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: notifyflow-production-super-secret-key-32chars!
+      WORKER_CONCURRENCY: 5
+      USE_MOCK_FCM: "true"
+
+volumes:
+  postgres_data:
+  redis_data:
